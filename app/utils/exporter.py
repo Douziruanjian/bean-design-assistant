@@ -72,7 +72,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = self._create_header_style()
-            cell.alignment = Alignment(center=True)
+            cell.alignment = Alignment(horizontal="center")
         
         # 数据行
         status_map = {
@@ -127,7 +127,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = self._create_header_style()
-            cell.alignment = Alignment(center=True)
+            cell.alignment = Alignment(horizontal="center")
         
         # 数据行
         status_map = {
@@ -177,7 +177,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = self._create_header_style()
-            cell.alignment = Alignment(center=True)
+            cell.alignment = Alignment(horizontal="center")
         
         # 数据行
         for row_idx, customer in enumerate(customers, 2):
@@ -264,7 +264,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=6, column=col, value=header)
             cell.font = Font(bold=True)
-            cell.alignment = Alignment(center=True)
+            cell.alignment = Alignment(horizontal="center")
         
         # 项目数据
         for row_idx, item in enumerate(quotation.items, 7):
