@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/bean.db
+*.spec
+dist/
+build/
