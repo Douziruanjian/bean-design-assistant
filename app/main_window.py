@@ -16,6 +16,9 @@ from ..modules.order import OrderManager
 from ..modules.quotation import QuotationManager
 from ..modules.customer import CustomerManager
 
+from .ui.ai_matting_page import AiMattingPage
+from .ui.ai_ocr_page import AiOcrPage
+
 
 class NavigationButton(QPushButton):
     """侧边导航按钮"""
@@ -61,6 +64,8 @@ class MainWindow(QMainWindow):
         self._create_menu_bar()
         self._create_tool_bar()
         self._create_status_bar()
+        # 状态栏初始提示 AI 模型状态
+        self._update_ai_status()
         
         # 设置窗口属性
         self.setWindowTitle("豆子设计助手")
@@ -100,6 +105,11 @@ class MainWindow(QMainWindow):
         self.nav_buttons = []
         self.pages = []
         
+        # ── 业务模块 ──
+        section_label = QLabel("    业务管理")
+        section_label.setStyleSheet("color: #999; font-size: 11px; padding: 5px 0;")
+        nav_layout.addWidget(section_label)
+        
         # 工单管理
         btn_orders = NavigationButton("📋 工单管理")
         btn_orders.clicked.connect(lambda: self._switch_page(0))
@@ -118,9 +128,39 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(btn_customers)
         self.nav_buttons.append(btn_customers)
         
+        # ── AI 功能 ──
+        spacer = QFrame()
+        spacer.setFixedHeight(10)
+        nav_layout.addWidget(spacer)
+        
+        ai_label = QLabel("    AI 工具")
+        ai_label.setStyleSheet("color: #999; font-size: 11px; padding: 5px 0;")
+        nav_layout.addWidget(ai_label)
+        
+        # AI 抠图
+        btn_matting = NavigationButton("🎨 AI 抠图")
+        btn_matting.clicked.connect(lambda: self._switch_page(3))
+        nav_layout.addWidget(btn_matting)
+        self.nav_buttons.append(btn_matting)
+        
+        # 文字识别(OCR)
+        btn_ocr = NavigationButton("📝 文字识别")
+        btn_ocr.clicked.connect(lambda: self._switch_page(4))
+        nav_layout.addWidget(btn_ocr)
+        self.nav_buttons.append(btn_ocr)
+        
+        # ── 系统 ──
+        spacer2 = QFrame()
+        spacer2.setFixedHeight(10)
+        nav_layout.addWidget(spacer2)
+        
+        sys_label = QLabel("    系统")
+        sys_label.setStyleSheet("color: #999; font-size: 11px; padding: 5px 0;")
+        nav_layout.addWidget(sys_label)
+        
         # 设置
         btn_settings = NavigationButton("⚙️ 设置")
-        btn_settings.clicked.connect(lambda: self._switch_page(3))
+        btn_settings.clicked.connect(lambda: self._switch_page(5))
         nav_layout.addWidget(btn_settings)
         self.nav_buttons.append(btn_settings)
         
@@ -137,11 +177,13 @@ class MainWindow(QMainWindow):
         # 页面堆栈
         self.stack_widget = QStackedWidget()
         
-        # 创建各页面（暂时用占位页面）
-        self.pages.append(self._create_orders_page())
-        self.pages.append(self._create_quotations_page())
-        self.pages.append(self._create_customers_page())
-        self.pages.append(self._create_settings_page())
+        # 创建各页面
+        self.pages.append(self._create_orders_page())       # 0
+        self.pages.append(self._create_quotations_page())   # 1
+        self.pages.append(self._create_customers_page())    # 2
+        self.pages.append(AiMattingPage())                  # 3 - AI 抠图
+        self.pages.append(AiOcrPage())                      # 4 - 文字识别
+        self.pages.append(self._create_settings_page())     # 5 - 设置
         
         for page in self.pages:
             self.stack_widget.addWidget(page)
@@ -246,6 +288,23 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
+        # AI 菜单
+        ai_menu = menubar.addMenu("AI(&A)")
+        
+        matting_action = QAction("AI 抠图(&M)", self)
+        matting_action.triggered.connect(lambda: self._switch_page(3))
+        ai_menu.addAction(matting_action)
+        
+        ocr_action = QAction("文字识别(&O)", self)
+        ocr_action.triggered.connect(lambda: self._switch_page(4))
+        ai_menu.addAction(ocr_action)
+        
+        ai_menu.addSeparator()
+        
+        download_action = QAction("下载 AI 模型(&D)", self)
+        download_action.triggered.connect(self._download_models)
+        ai_menu.addAction(download_action)
+        
         # 帮助菜单
         help_menu = menubar.addMenu("帮助(&H)")
         
@@ -271,8 +330,13 @@ class MainWindow(QMainWindow):
         
         # 数据库状态
         db_status = QLabel("数据库：✓ 已连接")
-        db_status.setStyleSheet("color: #4caf50;")
+        db_status.setStyleSheet("color: #4caf50; margin-right: 15px;")
         statusbar.addPermanentWidget(db_status)
+        
+        # AI 模型状态（稍后更新）
+        self.ai_status_label = QLabel("AI 模型：——")
+        self.ai_status_label.setStyleSheet("color: #999; margin-right: 15px;")
+        statusbar.addPermanentWidget(self.ai_status_label)
         
         # 用户信息
         user_info = QLabel("当前用户：管理员")
@@ -281,9 +345,41 @@ class MainWindow(QMainWindow):
         # 默认消息
         statusbar.showMessage("就绪")
     
+    def _update_ai_status(self):
+        """更新 AI 模型状态"""
+        try:
+            from ..ai.model_loader import get_available_modes, check_model_file, U2NET_FP32_PATH, U2NET_INT8_PATH
+            
+            has_fp32 = check_model_file(U2NET_FP32_PATH)
+            has_int8 = check_model_file(U2NET_INT8_PATH)
+            
+            if has_fp32 and has_int8:
+                self.ai_status_label.setText("AI 模型：✓ FP32+INT8")
+                self.ai_status_label.setStyleSheet("color: #4caf50; margin-right: 15px;")
+            elif has_fp32:
+                self.ai_status_label.setText("AI 模型：✓ FP32")
+                self.ai_status_label.setStyleSheet("color: #4caf50; margin-right: 15px;")
+            elif has_int8:
+                self.ai_status_label.setText("AI 模型：✓ INT8")
+                self.ai_status_label.setStyleSheet("color: #4caf50; margin-right: 15px;")
+            else:
+                self.ai_status_label.setText("AI 模型：⚠️ 未下载")
+                self.ai_status_label.setStyleSheet("color: #ff9800; margin-right: 15px;")
+        except Exception:
+            self.ai_status_label.setText("AI 模型：——")
+    
     def _export_data(self):
         """导出数据"""
         QMessageBox.information(self, "导出", "导出功能开发中...")
+    
+    def _download_models(self):
+        """下载 AI 模型"""
+        QMessageBox.information(
+            self,
+            "下载 AI 模型",
+            "模型下载功能需要单独运行 download_models.py 脚本\n\n"
+            "请执行: python download_models.py"
+        )
     
     def _show_about(self):
         """显示关于对话框"""
@@ -292,7 +388,7 @@ class MainWindow(QMainWindow):
             "关于豆子设计助手",
             "豆子设计助手 V1.0.0\n\n"
             "一款面向图文店的桌面应用\n"
-            "提供工单管理、报价计算、客户管理功能\n\n"
+            "提供工单管理、报价计算、客户管理、AI 抠图、文字识别功能\n\n"
             "© 2026 豆子软件"
         )
     
