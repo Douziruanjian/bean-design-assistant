@@ -14,8 +14,8 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-from ..database.models import Order, Quotation, Customer
-from ..database.db_manager import DatabaseManager
+from app.database.models import Order, Quotation, Customer
+from app.database.db_manager import DatabaseManager
 
 
 class DataExporter:
@@ -72,7 +72,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = self._create_header_style()
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = Alignment(center=True)
         
         # 数据行
         status_map = {
@@ -127,7 +127,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = self._create_header_style()
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = Alignment(center=True)
         
         # 数据行
         status_map = {
@@ -177,7 +177,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = self._create_header_style()
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = Alignment(center=True)
         
         # 数据行
         for row_idx, customer in enumerate(customers, 2):
@@ -264,7 +264,7 @@ class DataExporter:
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=6, column=col, value=header)
             cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = Alignment(center=True)
         
         # 项目数据
         for row_idx, item in enumerate(quotation.items, 7):
