@@ -5,8 +5,8 @@
 """
 from typing import List, Optional
 
-from ..database.db_manager import DatabaseManager
-from ..database.models import Customer
+from app.database.db_manager import DatabaseManager
+from app.database.models import Customer
 
 
 class CustomerManager:
