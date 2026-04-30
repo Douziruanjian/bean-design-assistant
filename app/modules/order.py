@@ -5,8 +5,8 @@
 """
 from typing import List, Optional, Dict, Any
 
-from ..database.db_manager import DatabaseManager
-from ..database.models import Order
+from app.database.db_manager import DatabaseManager
+from app.database.models import Order
 
 
 class OrderManager:
