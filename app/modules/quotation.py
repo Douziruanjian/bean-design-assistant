@@ -6,8 +6,8 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 
-from ..database.db_manager import DatabaseManager
-from ..database.models import Quotation, QuotationItem
+from app.database.db_manager import DatabaseManager
+from app.database.models import Quotation, QuotationItem
 
 
 class QuotationManager:
