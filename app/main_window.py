@@ -12,10 +12,10 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QIcon
 
-from ..database.db_manager import DatabaseManager
-from ..modules.order import OrderManager
-from ..modules.quotation import QuotationManager
-from ..modules.customer import CustomerManager
+from app.database.db_manager import DatabaseManager
+from app.modules.order import OrderManager
+from app.modules.quotation import QuotationManager
+from app.modules.customer import CustomerManager
 
 
 class NavigationButton(QPushButton):
