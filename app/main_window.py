@@ -68,8 +68,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
         
-        # 高 DPI 适配
-        self.setAttribute(Qt.WidgetAttribute.AA_EnableHighDpiScaling, True)
+        # 高 DPI 适配（由 main.py 统一处理）
     
     def _init_ui(self):
         """初始化用户界面"""
