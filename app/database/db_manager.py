@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
 
-from .models import Order, Quotation, QuotationItem, Customer, generate_order_no, generate_quotation_no, get_current_datetime
+from .models import Order, Quotation, QuotationItem, Customer, PaymentRecord, generate_order_no, generate_quotation_no, get_current_datetime
 
 
 class DatabaseManager:
@@ -84,6 +84,21 @@ class DatabaseManager:
             )
         ''')
         
+        # 收款记录表（Task 2）
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS payment_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                order_no TEXT,
+                customer_name TEXT,
+                amount REAL DEFAULT 0.0,
+                payment_method TEXT,
+                payment_type TEXT,
+                remark TEXT,
+                created_at TEXT NOT NULL
+            )
+        ''')
+        
         # 创建索引
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)')
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_name)')
@@ -116,6 +131,20 @@ class DatabaseManager:
             pass
         try:
             self.cursor.execute('ALTER TABLE orders ADD COLUMN source_type TEXT DEFAULT "manual"')
+        except sqlite3.OperationalError:
+            pass
+        
+        # ═══ Task 2 迁移：收款字段 ═══
+        try:
+            self.cursor.execute('ALTER TABLE orders ADD COLUMN paid_amount REAL DEFAULT 0.0')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.cursor.execute('ALTER TABLE orders ADD COLUMN unpaid_amount REAL DEFAULT 0.0')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.cursor.execute('ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT "unpaid"')
         except sqlite3.OperationalError:
             pass
         
@@ -187,15 +216,21 @@ class DatabaseManager:
         order.order_no = order_no
         order.created_at = get_current_datetime()
         order.updated_at = get_current_datetime()
+        # 初始收款状态
+        order.paid_amount = 0.0
+        order.unpaid_amount = order.total_amount
+        order.payment_status = "unpaid"
         
         self.cursor.execute('''
             INSERT INTO orders (order_no, customer_name, customer_phone, description, 
-                               total_amount, status, source_quotation_no, source_type,
+                               total_amount, paid_amount, unpaid_amount, payment_status,
+                               status, source_quotation_no, source_type,
                                created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (order.order_no, order.customer_name, order.customer_phone, 
-              order.description, order.total_amount, order.status,
-              order.source_quotation_no, order.source_type,
+              order.description, order.total_amount,
+              order.paid_amount, order.unpaid_amount, order.payment_status,
+              order.status, order.source_quotation_no, order.source_type,
               order.created_at, order.updated_at))
         
         self.conn.commit()
@@ -214,6 +249,9 @@ class DatabaseManager:
                 customer_phone=row['customer_phone'],
                 description=row['description'],
                 total_amount=row['total_amount'],
+                paid_amount=row['paid_amount'] or 0.0,
+                unpaid_amount=row['unpaid_amount'] or 0.0,
+                payment_status=row['payment_status'] or 'unpaid',
                 status=row['status'],
                 source_quotation_no=row['source_quotation_no'] or '',
                 source_type=row['source_type'] or 'manual',
@@ -253,7 +291,12 @@ class DatabaseManager:
             customer_phone=row['customer_phone'],
             description=row['description'],
             total_amount=row['total_amount'],
+            paid_amount=row['paid_amount'] or 0.0,
+            unpaid_amount=row['unpaid_amount'] or 0.0,
+            payment_status=row['payment_status'] or 'unpaid',
             status=row['status'],
+            source_quotation_no=row['source_quotation_no'] or '',
+            source_type=row['source_type'] or 'manual',
             created_at=row['created_at'],
             updated_at=row['updated_at']
         ) for row in rows]
@@ -265,13 +308,123 @@ class DatabaseManager:
         self.cursor.execute('''
             UPDATE orders SET 
                 customer_name = ?, customer_phone = ?, description = ?,
-                total_amount = ?, status = ?, updated_at = ?
+                total_amount = ?, paid_amount = ?, unpaid_amount = ?,
+                payment_status = ?, status = ?, updated_at = ?
             WHERE id = ?
         ''', (order.customer_name, order.customer_phone, order.description,
-              order.total_amount, order.status, order.updated_at, order.id))
+              order.total_amount, order.paid_amount, order.unpaid_amount,
+              order.payment_status, order.status, order.updated_at, order.id))
         
         self.conn.commit()
         return self.cursor.rowcount > 0
+    
+    # ==================== 收款记录操作 ====================
+    
+    def create_payment(self, record: PaymentRecord) -> PaymentRecord:
+        """创建收款记录并更新工单金额"""
+        record.created_at = get_current_datetime()
+        
+        self.cursor.execute('''
+            INSERT INTO payment_records (order_id, order_no, customer_name, amount,
+                                         payment_method, payment_type, remark, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (record.order_id, record.order_no, record.customer_name,
+              record.amount, record.payment_method, record.payment_type,
+              record.remark, record.created_at))
+        self.conn.commit()
+        record.id = self.cursor.lastrowid
+        
+        # 更新工单收款金额和状态
+        self._update_order_payment(record.order_id)
+        
+        return record
+    
+    def _update_order_payment(self, order_id: int):
+        """更新工单收款金额和状态"""
+        # 计算工单已收总额
+        self.cursor.execute('''
+            SELECT COALESCE(SUM(amount), 0.0) as total_paid
+            FROM payment_records WHERE order_id = ?
+        ''', (order_id,))
+        row = self.cursor.fetchone()
+        paid = float(row['total_paid'])
+        
+        # 获取工单总金额
+        self.cursor.execute('SELECT total_amount FROM orders WHERE id = ?', (order_id,))
+        row = self.cursor.fetchone()
+        if not row:
+            return
+        total = float(row['total_amount'])
+        
+        unpaid = total - paid
+        if unpaid < 0:
+            unpaid = 0.0
+        
+        # 判定收款状态
+        if paid <= 0:
+            status = 'unpaid'
+        elif paid >= total:
+            status = 'paid'
+        else:
+            status = 'partial'
+        
+        self.cursor.execute('''
+            UPDATE orders SET paid_amount = ?, unpaid_amount = ?,
+                payment_status = ?
+            WHERE id = ?
+        ''', (paid, unpaid, status, order_id))
+        self.conn.commit()
+    
+    def get_payments_by_order(self, order_id: int) -> List[PaymentRecord]:
+        """获取工单的所有收款记录"""
+        self.cursor.execute('''
+            SELECT * FROM payment_records 
+            WHERE order_id = ? ORDER BY created_at DESC
+        ''', (order_id,))
+        rows = self.cursor.fetchall()
+        return [PaymentRecord(
+            id=r['id'], order_id=r['order_id'], order_no=r['order_no'],
+            customer_name=r['customer_name'], amount=r['amount'],
+            payment_method=r['payment_method'], payment_type=r['payment_type'],
+            remark=r['remark'], created_at=r['created_at']
+        ) for r in rows]
+    
+    def get_all_payments(self, start_date: Optional[str] = None,
+                          end_date: Optional[str] = None) -> List[PaymentRecord]:
+        """获取所有收款记录"""
+        query = 'SELECT * FROM payment_records WHERE 1=1'
+        params = []
+        if start_date:
+            query += ' AND date(created_at) >= date(?)'
+            params.append(start_date)
+        if end_date:
+            query += ' AND date(created_at) <= date(?)'
+            params.append(end_date)
+        query += ' ORDER BY created_at DESC'
+        self.cursor.execute(query, params)
+        rows = self.cursor.fetchall()
+        return [PaymentRecord(
+            id=r['id'], order_id=r['order_id'], order_no=r['order_no'],
+            customer_name=r['customer_name'], amount=r['amount'],
+            payment_method=r['payment_method'], payment_type=r['payment_type'],
+            remark=r['remark'], created_at=r['created_at']
+        ) for r in rows]
+    
+    def delete_payment(self, payment_id: int) -> bool:
+        """删除收款记录并重新计算"""
+        # 先获取关联的 order_id
+        self.cursor.execute('SELECT order_id FROM payment_records WHERE id = ?', (payment_id,))
+        row = self.cursor.fetchone()
+        if not row:
+            return False
+        order_id = row['order_id']
+        
+        self.cursor.execute('DELETE FROM payment_records WHERE id = ?', (payment_id,))
+        self.conn.commit()
+        
+        # 重新计算工单金额
+        self._update_order_payment(order_id)
+        return True
     
     def delete_order(self, order_id: int) -> bool:
         """删除工单"""
@@ -505,6 +658,24 @@ class DatabaseManager:
                     total_orders = ?, total_spent = ?
                 WHERE id = ?
             ''', (row['order_count'], row['total_spent'], customer_id))
+            self.conn.commit()
+    
+    def update_customer_stats_by_name(self, customer_name: str):
+        """通过客户名称更新统计数据"""
+        self.cursor.execute('''
+            SELECT COUNT(*) as order_count, COALESCE(SUM(total_amount), 0) as total_spent
+            FROM orders 
+            WHERE customer_name = ? AND status != 'cancelled'
+        ''', (customer_name,))
+        
+        row = self.cursor.fetchone()
+        if row:
+            self.cursor.execute('''
+                UPDATE customers SET 
+                    total_orders = ?, total_spent = ?
+                WHERE name = ?
+            ''', (row['order_count'], row['total_spent'], customer_name))
+            self.conn.commit()
             self.conn.commit()
     
     def close(self):
