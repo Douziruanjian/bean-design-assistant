@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QDialogButtonBox, QDateEdit,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QFont, QAction
+from PyQt6.QtGui import QFont, QAction, QColor
 
 from app.database.db_manager import DatabaseManager
 from app.database.models import (
@@ -643,10 +643,11 @@ class MainWindow(QMainWindow):
         fh.addStretch()
         lo.addLayout(fh)
 
-        # 表格
-        self.ot = QTableWidget(0, 7)
+        # 表格（增加金额列）
+        self.ot = QTableWidget(0, 10)
         self.ot.setHorizontalHeaderLabels(
-            ["工单号", "客户名称", "电话", "描述", "金额", "状态", "创建日期"])
+            ["工单号", "客户名称", "电话", "描述", "总金额", "已收", "未收",
+             "收款状态", "工单状态", "创建日期"])
         self.ot.setAlternatingRowColors(True)
         self.ot.setStyleSheet(TABLE_S)
         self.ot.horizontalHeader().setStretchLastSection(True)
@@ -667,6 +668,11 @@ class MainWindow(QMainWindow):
         e.setStyleSheet(BTN2)
         e.clicked.connect(self._edit_order)
         bh.addWidget(e)
+        self.btn_pay = QPushButton("💰 收款")
+        self.btn_pay.setStyleSheet(BTN1)
+        self.btn_pay.clicked.connect(self._pay_order)
+        self.btn_pay.setEnabled(False)
+        bh.addWidget(self.btn_pay)
         d = QPushButton("🗑️ 删除")
         d.setStyleSheet(BTN3)
         d.clicked.connect(self._del_order)
@@ -674,8 +680,20 @@ class MainWindow(QMainWindow):
         bh.addStretch()
         lo.addLayout(bh)
 
+        # 选中行时控制收款按钮
+        self.ot.itemSelectionChanged.connect(self._on_order_selection_changed)
+
         p.setLayout(lo)
         return p
+
+    def _on_order_selection_changed(self):
+        """工单选中变化时控制收款按钮状态"""
+        r = self.ot.currentRow()
+        if r < 0:
+            self.btn_pay.setEnabled(False)
+            return
+        status_text = self.ot.item(r, 7).text() if self.ot.item(r, 7) else ""
+        self.btn_pay.setEnabled(status_text != "已结清")
 
     def _new_order(self):
         customers = self.db.get_customers()
@@ -736,15 +754,29 @@ class MainWindow(QMainWindow):
             orders = self.order_manager.get_all_orders()
         else:
             orders = self.order_manager.get_orders_by_status(OS_R.get(f, ""))
+        
+        # 收款状态颜色映射
+        ps_colors = {
+            "unpaid": "#e53935",   # 红色
+            "partial": "#fb8c00",  # 橙色
+            "paid": "#43a047",     # 绿色
+        }
+        ps_text = {"unpaid": "未付款", "partial": "部分付款", "paid": "已结清"}
+        
         self.ot.setRowCount(len(orders))
         for i, o in enumerate(orders):
             desc = o.description[:30] + "..." if len(o.description) > 30 else o.description
+            payment_status = o.payment_status or "unpaid"
+            
             row = [
                 (o.order_no, o.id),
                 (o.customer_name, None),
                 (o.customer_phone, None),
                 (desc, None),
                 (f"¥ {o.total_amount:.2f}", None),
+                (f"¥ {o.paid_amount:.2f}", None),
+                (f"¥ {o.unpaid_amount:.2f}", None),
+                (ps_text.get(payment_status, "未付款"), None),
                 (OS.get(o.status, o.status), None),
                 (o.created_at[:10] if o.created_at else "", None),
             ]
@@ -752,7 +784,105 @@ class MainWindow(QMainWindow):
                 it = QTableWidgetItem(txt)
                 if uid is not None:
                     it.setData(Qt.ItemDataRole.UserRole, uid)
+                # 收款状态列着色
+                if c == 7:
+                    color = ps_colors.get(payment_status, "#999")
+                    it.setForeground(QColor(color))
+                    font = QFont("Microsoft YaHei", 11, QFont.Weight.Bold)
+                    it.setFont(font)
                 self.ot.setItem(i, c, it)
+
+    def _pay_order(self):
+        """打开收款对话框"""
+        r = self.ot.currentRow()
+        if r < 0:
+            return
+        
+        oid = self.ot.item(r, 0).data(Qt.ItemDataRole.UserRole)
+        o = self.order_manager.get_order(oid)
+        if not o:
+            return
+        
+        if o.payment_status == "paid":
+            QMessageBox.information(self, "提示", "该工单已结清")
+            return
+        
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QTextEdit
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"收款 - {o.order_no}")
+        dlg.setMinimumWidth(400)
+        
+        fl = QFormLayout(dlg)
+        fl.setSpacing(12)
+        
+        info = QLabel(f"工单: {o.order_no}\n客户: {o.customer_name}\n"
+                     f"总金额: ¥{o.total_amount:.2f}\n"
+                     f"已收: ¥{o.paid_amount:.2f}\n"
+                     f"未收: ¥{o.unpaid_amount:.2f}")
+        info.setStyleSheet("font-size: 13px; padding: 10px; background: #f5f5f5; border-radius: 4px;")
+        fl.addRow(info)
+        
+        amount_input = QDoubleSpinBox()
+        amount_input.setRange(0.01, max(o.unpaid_amount, 0.01))
+        amount_input.setPrefix("¥ ")
+        amount_input.setDecimals(2)
+        amount_input.setValue(min(o.unpaid_amount, o.total_amount))
+        amount_input.setMinimumHeight(32)
+        fl.addRow("收款金额 *", amount_input)
+        
+        method_input = QComboBox()
+        for m in ["微信", "支付宝", "现金", "挂账"]:
+            method_input.addItem(m)
+        method_input.setMinimumHeight(32)
+        fl.addRow("支付方式", method_input)
+        
+        type_input = QComboBox()
+        for t in ["定金", "中途款", "尾款"]:
+            type_input.addItem(t)
+        type_input.setMinimumHeight(32)
+        fl.addRow("收款类型", type_input)
+        
+        remark_input = QTextEdit()
+        remark_input.setPlaceholderText("备注（可选）")
+        remark_input.setMaximumHeight(60)
+        fl.addRow("备注", remark_input)
+        
+        b = QHBoxLayout()
+        b.addStretch()
+        s = QPushButton("✅ 确认收款")
+        s.setStyleSheet(BTN1)
+        s.clicked.connect(dlg.accept)
+        b.addWidget(s)
+        c = QPushButton("取消")
+        c.setStyleSheet(BTN2)
+        c.clicked.connect(dlg.reject)
+        b.addWidget(c)
+        fl.addRow(b)
+        
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            amount = amount_input.value()
+            method = method_input.currentText()
+            ptype = type_input.currentText()
+            remark = remark_input.toPlainText().strip()
+            
+            try:
+                from app.modules.payment import PaymentManager
+                pm = PaymentManager(self.db)
+                record = pm.record_payment(
+                    order_id=o.id, order_no=o.order_no,
+                    customer_name=o.customer_name,
+                    amount=amount, payment_method=method,
+                    payment_type=ptype, remark=remark
+                )
+                if record:
+                    self.statusBar().showMessage(
+                        f"✅ 收款成功：¥{amount:.2f}（{method}/{ptype}）", 3000)
+                    self._refresh_orders()
+                else:
+                    QMessageBox.warning(self, "失败", "收款记录失败")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"收款出错: {str(e)}")
 
     # ══════════════════════════════════════════
     # 报价管理页面
