@@ -675,42 +675,50 @@ class MainWindow(QMainWindow):
         return p
 
     def _new_order(self):
-        customers = self.db.get_customers()
-        d = OrderDialog(self, customers=customers)
-        if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
-            o = d.result_order
-            r = self.order_manager.create_order(
-                customer_name=o.customer_name,
-                customer_phone=o.customer_phone,
-                description=o.description,
-                total_amount=o.total_amount,
-                status=o.status,
-            )
-            if r:
-                self.statusBar().showMessage(f"✅ 工单创建成功：{r.order_no}", 3000)
-                self._refresh_orders()
+        try:
+            customers = self.db.get_customers()
+            d = OrderDialog(self, customers=customers)
+            if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
+                o = d.result_order
+                r = self.order_manager.create_order(
+                    customer_name=o.customer_name,
+                    customer_phone=o.customer_phone,
+                    description=o.description,
+                    total_amount=o.total_amount,
+                    status=o.status,
+                )
+                if r:
+                    self.statusBar().showMessage(f"✅ 工单创建成功：{r.order_no}", 3000)
+                    self._refresh_orders()
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self, "错误", f"创建工单失败:\n{type(e).__name__}: {e}\n\n{traceback.format_exc()}")
 
     def _edit_order(self):
-        r = self.ot.currentRow()
-        if r < 0:
-            QMessageBox.warning(self, "提示", "请先选中一个工单"); return
-        oid = self.ot.item(r, 0).data(Qt.ItemDataRole.UserRole)
-        o = self.order_manager.get_order(oid)
-        if not o:
-            return
-        d = OrderDialog(self, o, customers=self.db.get_customers())
-        if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
-            r2 = d.result_order
-            self.order_manager.update_order(
-                o.id,
-                customer_name=r2.customer_name,
-                customer_phone=r2.customer_phone,
-                description=r2.description,
-                total_amount=r2.total_amount,
-                status=r2.status,
-            )
-            self.statusBar().showMessage("✅ 工单已更新", 3000)
-            self._refresh_orders()
+        try:
+            r = self.ot.currentRow()
+            if r < 0:
+                QMessageBox.warning(self, "提示", "请先选中一个工单"); return
+            oid = self.ot.item(r, 0).data(Qt.ItemDataRole.UserRole)
+            o = self.order_manager.get_order(oid)
+            if not o:
+                return
+            d = OrderDialog(self, o, customers=self.db.get_customers())
+            if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
+                r2 = d.result_order
+                self.order_manager.update_order(
+                    o.id,
+                    customer_name=r2.customer_name,
+                    customer_phone=r2.customer_phone,
+                    description=r2.description,
+                    total_amount=r2.total_amount,
+                    status=r2.status,
+                )
+                self.statusBar().showMessage("✅ 工单已更新", 3000)
+                self._refresh_orders()
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self, "错误", f"编辑工单失败:\n{type(e).__name__}: {e}\n\n{traceback.format_exc()}")
 
     def _del_order(self):
         r = self.ot.currentRow()
