@@ -119,9 +119,11 @@ class OrderDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        # QComboBox 不支持 placeholder，用第一项作为提示
-        for c in self.customers:
-            self.customer_name.addItem(c.name, c.id)
+        if not self.customers:
+            self.customer_name.addItem("暂无客户，请先在客户管理添加")
+        else:
+            for c in self.customers:
+                self.customer_name.addItem(c.name, c.id)
         self.customer_name.currentIndexChanged.connect(self._on_customer_changed)
 
         self.customer_phone = QLineEdit()
@@ -183,10 +185,11 @@ class OrderDialog(QDialog):
 
     def _on_customer_changed(self, idx):
         """选择客户后自动填充电话"""
-        if idx < 0 or idx >= len(self.customers):
+        if not self.customers or idx < 0 or idx >= len(self.customers):
             return
         c = self.customers[idx]
-        self.customer_phone.setText(c.phone or "")
+        if c and hasattr(c, 'phone'):
+            self.customer_phone.setText(c.phone or "")
 
     def _accept(self):
         name = self.customer_name.currentText().strip()
@@ -227,9 +230,11 @@ class QuotationDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        # QComboBox 不支持 placeholder，用第一项作为提示
-        for c in self.customers:
-            self.customer_name.addItem(c.name, c.id)
+        if not self.customers:
+            self.customer_name.addItem("暂无客户，请先在客户管理添加")
+        else:
+            for c in self.customers:
+                self.customer_name.addItem(c.name, c.id)
         form.addRow("客户 *", self.customer_name)
 
         self.valid_days = QSpinBox()
