@@ -147,7 +147,7 @@ class OrderDialog(QDialog):
 
         form = QFormLayout()
         form.setSpacing(10)
-        form.addRow("客户名称 *", self.customer_name)
+        form.addRow("客户 *", self.customer_combo)
         form.addRow("联系电话", self.customer_phone)
         form.addRow("工单描述 *", self.description)
         form.addRow("金额", self.total_amount)
@@ -230,7 +230,7 @@ class QuotationDialog(QDialog):
         self.customer_name.setPlaceholderText("请选择客户")
         for c in self.customers:
             self.customer_name.addItem(c.name, c.id)
-        form.addRow("客户名称 *", self.customer_name)
+        form.addRow("客户 *", self.customer_combo)
 
         self.valid_days = QSpinBox()
         self.valid_days.setRange(1, 365)
@@ -388,7 +388,7 @@ class CustomerDialog(QDialog):
             self.address_edit.setText(customer.address)
             self.notes_edit.setPlainText(customer.notes)
 
-    def _ui(self):
+    def _init_ui(self):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("请输入客户名称")
         self.name_edit.setMinimumHeight(30)
@@ -508,7 +508,7 @@ class MainWindow(QMainWindow):
 
     # ── 界面布局 ──────────────────────────────
 
-    def _ui(self):
+    def _init_ui(self):
         cw = QWidget()
         self.setCentralWidget(cw)
         ml = QHBoxLayout()
