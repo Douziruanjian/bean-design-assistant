@@ -51,14 +51,11 @@ class OrderManager:
     
     def _update_customer_stats(self, customer_name: str):
         '''更新客户的订单数和消费总额'''
-        orders = self.db.get_orders()
-        total_orders = sum(1 for o in orders if o.customer_name == customer_name and o.status != "cancelled")
-        total_spent = sum(o.total_amount for o in orders if o.customer_name == customer_name and o.status != "cancelled")
-        # 更新客户记录
         customers = self.db.get_customers()
         for c in customers:
             if c.name == customer_name:
-                self.db.update_customer(c.id, total_orders=total_orders, total_spent=total_spent)
+                # 使用 db_manager 内置的 update_customer_stats 方法
+                self.db.update_customer_stats(c.id)
                 break
     
     def get_order(self, order_id: int) -> Optional[Order]:
