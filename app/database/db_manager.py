@@ -40,7 +40,7 @@ class DatabaseManager:
         self.cursor = self.conn.cursor()
     
     def _create_tables(self):
-        """创建数据库表"""
+        """创建数据库表并执行迁移"""
         # 工单表
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS orders (
@@ -88,6 +88,44 @@ class DatabaseManager:
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)')
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_name)')
         self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)')
+        
+        # ═══ 数据库迁移 ═══
+        self._migrate()
+    
+    def _migrate(self):
+        """数据库表结构迁移"""
+        # 报价表：增加 customer_id, converted_order_id, converted_at
+        for col in ['customer_id', 'converted_order_id', 'converted_at']:
+            try:
+                self.cursor.execute(f'ALTER TABLE quotations ADD COLUMN {col} INTEGER')
+            except sqlite3.OperationalError:
+                pass  # 列已存在
+        try:
+            self.cursor.execute('ALTER TABLE quotations ADD COLUMN converted_order_id INTEGER')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.cursor.execute('ALTER TABLE quotations ADD COLUMN converted_at TEXT')
+        except sqlite3.OperationalError:
+            pass
+        
+        # 工单表：增加 source_quotation_no, source_type
+        try:
+            self.cursor.execute('ALTER TABLE orders ADD COLUMN source_quotation_no TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.cursor.execute('ALTER TABLE orders ADD COLUMN source_type TEXT DEFAULT "manual"')
+        except sqlite3.OperationalError:
+            pass
+        
+        # 报价表索引
+        try:
+            self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_quotations_status ON quotations(status)')
+            self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_quotations_customer ON quotations(customer_id)')
+            self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_orders_source ON orders(source_quotation_no)')
+        except Exception:
+            pass
         
         self.conn.commit()
     
@@ -152,10 +190,12 @@ class DatabaseManager:
         
         self.cursor.execute('''
             INSERT INTO orders (order_no, customer_name, customer_phone, description, 
-                               total_amount, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                               total_amount, status, source_quotation_no, source_type,
+                               created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (order.order_no, order.customer_name, order.customer_phone, 
-              order.description, order.total_amount, order.status, 
+              order.description, order.total_amount, order.status,
+              order.source_quotation_no, order.source_type,
               order.created_at, order.updated_at))
         
         self.conn.commit()
@@ -175,6 +215,8 @@ class DatabaseManager:
                 description=row['description'],
                 total_amount=row['total_amount'],
                 status=row['status'],
+                source_quotation_no=row['source_quotation_no'] or '',
+                source_type=row['source_type'] or 'manual',
                 created_at=row['created_at'],
                 updated_at=row['updated_at']
             )
@@ -247,12 +289,12 @@ class DatabaseManager:
         items_json = quotation.items_to_json()
         
         self.cursor.execute('''
-            INSERT INTO quotations (quotation_no, customer_name, items, 
+            INSERT INTO quotations (quotation_no, customer_id, customer_name, items, 
                                    total_amount, valid_until, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (quotation.quotation_no, quotation.customer_name, items_json,
-              quotation.total_amount, quotation.valid_until, quotation.status,
-              quotation.created_at))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (quotation.quotation_no, quotation.customer_id, quotation.customer_name, 
+              items_json, quotation.total_amount, quotation.valid_until, 
+              quotation.status, quotation.created_at))
         
         self.conn.commit()
         quotation.id = self.cursor.lastrowid
@@ -266,24 +308,42 @@ class DatabaseManager:
             quotation = Quotation(
                 id=row['id'],
                 quotation_no=row['quotation_no'],
+                customer_id=row['customer_id'],
                 customer_name=row['customer_name'],
                 items=Quotation.items_from_json(row['items']),
                 total_amount=row['total_amount'],
                 valid_until=row['valid_until'],
                 status=row['status'],
+                converted_order_id=row['converted_order_id'],
+                converted_at=row['converted_at'] or '',
                 created_at=row['created_at']
             )
             return quotation
         return None
     
-    def get_quotations(self, status: Optional[str] = None) -> List[Quotation]:
-        """获取报价单列表"""
-        query = 'SELECT * FROM quotations'
+    def get_quotations(self, status: Optional[str] = None,
+                        customer_id: Optional[int] = None,
+                        start_date: Optional[str] = None,
+                        end_date: Optional[str] = None) -> List[Quotation]:
+        """获取报价单列表（可多条件筛选）"""
+        query = 'SELECT * FROM quotations WHERE 1=1'
         params = []
         
         if status:
-            query += ' WHERE status = ?'
+            query += ' AND status = ?'
             params.append(status)
+        
+        if customer_id is not None:
+            query += ' AND customer_id = ?'
+            params.append(customer_id)
+        
+        if start_date:
+            query += ' AND date(created_at) >= date(?)'
+            params.append(start_date)
+        
+        if end_date:
+            query += ' AND date(created_at) <= date(?)'
+            params.append(end_date)
         
         query += ' ORDER BY created_at DESC'
         
@@ -295,11 +355,14 @@ class DatabaseManager:
             quotation = Quotation(
                 id=row['id'],
                 quotation_no=row['quotation_no'],
+                customer_id=row['customer_id'],
                 customer_name=row['customer_name'],
                 items=Quotation.items_from_json(row['items']),
                 total_amount=row['total_amount'],
                 valid_until=row['valid_until'],
                 status=row['status'],
+                converted_order_id=row['converted_order_id'],
+                converted_at=row['converted_at'] or '',
                 created_at=row['created_at']
             )
             quotations.append(quotation)
@@ -312,12 +375,32 @@ class DatabaseManager:
         
         self.cursor.execute('''
             UPDATE quotations SET 
-                customer_name = ?, items = ?, total_amount = ?,
-                valid_until = ?, status = ?
+                customer_id = ?, customer_name = ?, items = ?, total_amount = ?,
+                valid_until = ?, status = ?, converted_order_id = ?, converted_at = ?
             WHERE id = ?
-        ''', (quotation.customer_name, items_json, quotation.total_amount,
-              quotation.valid_until, quotation.status, quotation.id))
+        ''', (quotation.customer_id, quotation.customer_name, items_json, 
+              quotation.total_amount, quotation.valid_until, quotation.status,
+              quotation.converted_order_id, quotation.converted_at, quotation.id))
         
+        self.conn.commit()
+        return self.cursor.rowcount > 0
+    
+    def update_quotation_status(self, quotation_id: int, status: str) -> bool:
+        """更新报价单状态"""
+        self.cursor.execute('''
+            UPDATE quotations SET status = ? WHERE id = ?
+        ''', (status, quotation_id))
+        self.conn.commit()
+        return self.cursor.rowcount > 0
+    
+    def mark_quotation_converted(self, quotation_id: int, order_id: int) -> bool:
+        """标记报价单已转工单"""
+        now = get_current_datetime()
+        self.cursor.execute('''
+            UPDATE quotations SET status = 'converted', 
+                converted_order_id = ?, converted_at = ?
+            WHERE id = ?
+        ''', (order_id, now, quotation_id))
         self.conn.commit()
         return self.cursor.rowcount > 0
     
