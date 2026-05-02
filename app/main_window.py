@@ -97,7 +97,8 @@ OS = {
 }
 OS_R = {v: k for k, v in OS.items()}
 
-QS = {"draft": "草稿", "confirmed": "已确认", "expired": "已过期"}
+QS = {"draft": "草稿", "sent": "已发给客户", "confirmed": "客户确认",
+       "converted": "已转工单", "voided": "作废"}
 QS_R = {v: k for k, v in QS.items()}
 
 
@@ -119,11 +120,9 @@ class OrderDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        if not self.customers:
-            self.customer_name.addItem("暂无客户，请先在客户管理添加")
-        else:
-            for c in self.customers:
-                self.customer_name.addItem(c.name, c.id)
+        self.customer_name.setPlaceholderText("请选择客户")
+        for c in self.customers:
+            self.customer_name.addItem(c.name, c.id)
         self.customer_name.currentIndexChanged.connect(self._on_customer_changed)
 
         self.customer_phone = QLineEdit()
@@ -149,7 +148,7 @@ class OrderDialog(QDialog):
 
         form = QFormLayout()
         form.setSpacing(10)
-        form.addRow("客户 *", self.customer_name)
+        form.addRow("客户名称 *", self.customer_name)
         form.addRow("联系电话", self.customer_phone)
         form.addRow("工单描述 *", self.description)
         form.addRow("金额", self.total_amount)
@@ -185,11 +184,10 @@ class OrderDialog(QDialog):
 
     def _on_customer_changed(self, idx):
         """选择客户后自动填充电话"""
-        if not self.customers or idx < 0 or idx >= len(self.customers):
+        if idx < 0 or idx >= len(self.customers):
             return
         c = self.customers[idx]
-        if c and hasattr(c, 'phone'):
-            self.customer_phone.setText(c.phone or "")
+        self.customer_phone.setText(c.phone or "")
 
     def _accept(self):
         name = self.customer_name.currentText().strip()
@@ -230,12 +228,10 @@ class QuotationDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        if not self.customers:
-            self.customer_name.addItem("暂无客户，请先在客户管理添加")
-        else:
-            for c in self.customers:
-                self.customer_name.addItem(c.name, c.id)
-        form.addRow("客户 *", self.customer_name)
+        self.customer_name.setPlaceholderText("请选择客户")
+        for c in self.customers:
+            self.customer_name.addItem(c.name, c.id)
+        form.addRow("客户名称 *", self.customer_name)
 
         self.valid_days = QSpinBox()
         self.valid_days.setRange(1, 365)
@@ -245,7 +241,7 @@ class QuotationDialog(QDialog):
         form.addRow("有效期", self.valid_days)
 
         self.status_combo = QComboBox()
-        for v in ["草稿", "已确认", "已过期"]:
+        for v in ["草稿", "已发给客户", "客户确认", "已转工单", "作废"]:
             self.status_combo.addItem(v)
         self.status_combo.setMinimumHeight(30)
         form.addRow("状态", self.status_combo)
@@ -366,8 +362,15 @@ class QuotationDialog(QDialog):
             QMessageBox.warning(self, "提示", "请选择客户名称"); return
         if not self.items:
             QMessageBox.warning(self, "提示", "请至少添加一个报价项目"); return
+        
+        # 获取 customer_id
+        cid = None
+        if self.customer_name.currentIndex() >= 0:
+            cid = self.customer_name.currentData()
+        
         self.result = {
             "customer_name": n,
+            "customer_id": cid,
             "items": self.items,
             "valid_days": self.valid_days.value(),
             "status": QS_R.get(self.status_combo.currentText(), "draft"),
@@ -386,14 +389,14 @@ class CustomerDialog(QDialog):
         self.customer = customer
         self.setWindowTitle("编辑客户" if customer else "新建客户")
         self.setMinimumWidth(450)
-        self._init_ui()
+        self._ui()
         if customer:
             self.name_edit.setText(customer.name)
             self.phone_edit.setText(customer.phone)
             self.address_edit.setText(customer.address)
             self.notes_edit.setPlainText(customer.notes)
 
-    def _init_ui(self):
+    def _ui(self):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("请输入客户名称")
         self.name_edit.setMinimumHeight(30)
@@ -498,7 +501,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        self._init_ui()
+        self._ui()
         self._menu_bar()
         self._tool_bar()
         self._status_bar()
@@ -513,7 +516,7 @@ class MainWindow(QMainWindow):
 
     # ── 界面布局 ──────────────────────────────
 
-    def _init_ui(self):
+    def _ui(self):
         cw = QWidget()
         self.setCentralWidget(cw)
         ml = QHBoxLayout()
@@ -675,50 +678,42 @@ class MainWindow(QMainWindow):
         return p
 
     def _new_order(self):
-        try:
-            customers = self.db.get_customers()
-            d = OrderDialog(self, customers=customers)
-            if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
-                o = d.result_order
-                r = self.order_manager.create_order(
-                    customer_name=o.customer_name,
-                    customer_phone=o.customer_phone,
-                    description=o.description,
-                    total_amount=o.total_amount,
-                    status=o.status,
-                )
-                if r:
-                    self.statusBar().showMessage(f"✅ 工单创建成功：{r.order_no}", 3000)
-                    self._refresh_orders()
-        except Exception as e:
-            import traceback
-            QMessageBox.critical(self, "错误", f"创建工单失败:\n{type(e).__name__}: {e}\n\n{traceback.format_exc()}")
+        customers = self.db.get_customers()
+        d = OrderDialog(self, customers=customers)
+        if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
+            o = d.result_order
+            r = self.order_manager.create_order(
+                customer_name=o.customer_name,
+                customer_phone=o.customer_phone,
+                description=o.description,
+                total_amount=o.total_amount,
+                status=o.status,
+            )
+            if r:
+                self.statusBar().showMessage(f"✅ 工单创建成功：{r.order_no}", 3000)
+                self._refresh_orders()
 
     def _edit_order(self):
-        try:
-            r = self.ot.currentRow()
-            if r < 0:
-                QMessageBox.warning(self, "提示", "请先选中一个工单"); return
-            oid = self.ot.item(r, 0).data(Qt.ItemDataRole.UserRole)
-            o = self.order_manager.get_order(oid)
-            if not o:
-                return
-            d = OrderDialog(self, o, customers=self.db.get_customers())
-            if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
-                r2 = d.result_order
-                self.order_manager.update_order(
-                    o.id,
-                    customer_name=r2.customer_name,
-                    customer_phone=r2.customer_phone,
-                    description=r2.description,
-                    total_amount=r2.total_amount,
-                    status=r2.status,
-                )
-                self.statusBar().showMessage("✅ 工单已更新", 3000)
-                self._refresh_orders()
-        except Exception as e:
-            import traceback
-            QMessageBox.critical(self, "错误", f"编辑工单失败:\n{type(e).__name__}: {e}\n\n{traceback.format_exc()}")
+        r = self.ot.currentRow()
+        if r < 0:
+            QMessageBox.warning(self, "提示", "请先选中一个工单"); return
+        oid = self.ot.item(r, 0).data(Qt.ItemDataRole.UserRole)
+        o = self.order_manager.get_order(oid)
+        if not o:
+            return
+        d = OrderDialog(self, o, customers=self.db.get_customers())
+        if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
+            r2 = d.result_order
+            self.order_manager.update_order(
+                o.id,
+                customer_name=r2.customer_name,
+                customer_phone=r2.customer_phone,
+                description=r2.description,
+                total_amount=r2.total_amount,
+                status=r2.status,
+            )
+            self.statusBar().showMessage("✅ 工单已更新", 3000)
+            self._refresh_orders()
 
     def _del_order(self):
         r = self.ot.currentRow()
@@ -790,19 +785,31 @@ class MainWindow(QMainWindow):
         h.addWidget(b3)
         lo.addLayout(h)
 
+        # ── 筛选区域 ──
         fh = QHBoxLayout()
-        fh.addWidget(QLabel("状态筛选："))
+        fh.addWidget(QLabel("客户："))
+        self.qf_customer = QComboBox()
+        self.qf_customer.addItem("全部客户")
+        self.qf_customer.setMinimumWidth(150)
+        self.qf_customer.setMinimumHeight(30)
+        self.qf_customer.currentIndexChanged.connect(
+            lambda _: self._refresh_quotations())
+        fh.addWidget(self.qf_customer)
+
+        fh.addSpacing(15)
+        fh.addWidget(QLabel("状态："))
         self.qf = QComboBox()
-        self.qf.addItems(["全部", "草稿", "已确认", "已过期"])
-        self.qf.currentTextChanged.connect(lambda _: self._refresh_quotations())
+        self.qf.addItems(["全部", "草稿", "已发给客户", "客户确认", "已转工单", "作废"])
+        self.qf.currentTextChanged.connect(
+            lambda _: self._refresh_quotations())
         self.qf.setMinimumHeight(30)
         fh.addWidget(self.qf)
         fh.addStretch()
         lo.addLayout(fh)
 
-        self.qt = QTableWidget(0, 6)
+        self.qt = QTableWidget(0, 7)
         self.qt.setHorizontalHeaderLabels(
-            ["报价单号", "客户名称", "项目数", "总金额", "状态", "创建日期"])
+            ["报价单号", "客户名称", "项目数", "总金额", "状态", "创建日期", "来源工单"])
         self.qt.setAlternatingRowColors(True)
         self.qt.setStyleSheet(TABLE_S)
         self.qt.horizontalHeader().setStretchLastSection(True)
@@ -816,12 +823,36 @@ class MainWindow(QMainWindow):
         e.setStyleSheet(BTN2)
         e.clicked.connect(self._edit_quotation)
         bh.addWidget(e)
+
+        self.btn_convert = QPushButton("📋 生成工单")
+        self.btn_convert.setStyleSheet(BTN1)
+        self.btn_convert.clicked.connect(self._convert_quotation_to_order)
+        self.btn_convert.setEnabled(False)
+        bh.addWidget(self.btn_convert)
+
         d = QPushButton("🗑️ 删除")
         d.setStyleSheet(BTN3)
         d.clicked.connect(self._del_quotation)
         bh.addWidget(d)
         bh.addStretch()
         lo.addLayout(bh)
+
+        # 选中行时检查是否可转工单
+        self.qt.itemSelectionChanged.connect(
+            self._on_quotation_selection_changed)
+
+        p.setLayout(lo)
+        return p
+
+    def _on_quotation_selection_changed(self):
+        """报价选中变化时控制转工单按钮状态"""
+        r = self.qt.currentRow()
+        if r < 0:
+            self.btn_convert.setEnabled(False)
+            return
+        status_text = self.qt.item(r, 4).text() if self.qt.item(r, 4) else ""
+        # 仅"客户确认"可转工单
+        self.btn_convert.setEnabled(status_text == "客户确认")
 
         p.setLayout(lo)
         return p
@@ -833,6 +864,7 @@ class MainWindow(QMainWindow):
             r = d.result
             q = self.quotation_manager.create_quotation(
                 customer_name=r["customer_name"],
+                customer_id=r.get("customer_id"),
                 items=r["items"],
                 valid_days=r["valid_days"],
             )
@@ -849,12 +881,16 @@ class MainWindow(QMainWindow):
         q = self.quotation_manager.get_quotation(qid)
         if not q:
             return
+        # 已转工单不可编辑
+        if q.status == "converted":
+            QMessageBox.information(self, "提示", "已转工单的报价单不可编辑")
+            return
         d = QuotationDialog(self, q, customers=self.db.get_customers())
         if d.exec() == QDialog.DialogCode.Accepted and d.result:
             r2 = d.result
-            # 重建报价
             new_q = self.quotation_manager.create_quotation(
                 customer_name=r2["customer_name"],
+                customer_id=r2.get("customer_id"),
                 items=r2["items"],
                 valid_days=r2["valid_days"],
             )
@@ -865,6 +901,9 @@ class MainWindow(QMainWindow):
                 self.db.cursor.execute(
                     "UPDATE quotations SET id=? WHERE id=?",
                     (qid, new_q.id))
+                # 保持 converted 状态
+                if q.status == "converted" and q.converted_order_id:
+                    self.db.mark_quotation_converted(qid, q.converted_order_id)
                 self.db.conn.commit()
             self.statusBar().showMessage("✅ 报价单已更新", 3000)
             self._refresh_quotations()
@@ -874,24 +913,92 @@ class MainWindow(QMainWindow):
         if r < 0:
             QMessageBox.warning(self, "提示", "请先选中要删除的报价单"); return
         no = self.qt.item(r, 0).text()
+        qid = self.qt.item(r, 0).data(Qt.ItemDataRole.UserRole)
+        q = self.quotation_manager.get_quotation(qid)
+        if q and q.status == "converted":
+            QMessageBox.warning(self, "提示", "已转工单的报价单不可删除")
+            return
         a = QMessageBox.question(self, "确认删除",
             f"确定要删除报价单 [{no}] 吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if a == QMessageBox.StandardButton.Yes:
-            qid = self.qt.item(r, 0).data(Qt.ItemDataRole.UserRole)
             self.quotation_manager.delete_quotation(qid)
             self.statusBar().showMessage(f"✅ 报价单已删除：{no}", 3000)
             self._refresh_quotations()
 
+    def _convert_quotation_to_order(self):
+        """一键将报价单转为工单"""
+        r = self.qt.currentRow()
+        if r < 0:
+            return
+        qid = self.qt.item(r, 0).data(Qt.ItemDataRole.UserRole)
+        q = self.quotation_manager.get_quotation(qid)
+        if not q or q.status != "confirmed":
+            QMessageBox.warning(self, "提示", "仅「客户确认」状态的报价单可生成工单")
+            return
+        
+        # 确认对话框
+        a = QMessageBox.question(
+            self, "生成工单",
+            f"确定要根据报价单 [{q.quotation_no}] 生成工单吗？\n\n"
+            f"客户：{q.customer_name}\n"
+            f"金额：¥{q.total_amount:.2f}\n"
+            f"项目数：{len(q.items)} 项",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        
+        if a != QMessageBox.StandardButton.Yes:
+            return
+        
+        try:
+            order = self.quotation_manager.convert_to_order(qid)
+            if order:
+                self.statusBar().showMessage(
+                    f"✅ 工单已生成：{order.order_no}", 5000)
+                self._refresh_quotations()
+                # 自动跳转到工单页面
+                self._switch(self.IDX_ORDERS)
+                self._refresh_orders()
+            else:
+                QMessageBox.warning(self, "生成失败", "工单生成失败，请重试")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"生成工单出错: {str(e)}")
+
     def _refresh_quotations(self):
-        f = self.qf.currentText()
-        if f == "全部":
-            qs = self.quotation_manager.get_all_quotations()
-        else:
-            qs = self.quotation_manager.get_quotations_by_status(QS_R.get(f, ""))
+        # 刷新客户筛选下拉
+        customers = self.db.get_customers()
+        current_cust = self.qf_customer.currentText()
+        self.qf_customer.blockSignals(True)
+        self.qf_customer.clear()
+        self.qf_customer.addItem("全部客户")
+        for c in customers:
+            self.qf_customer.addItem(c.name, c.id)
+        # 恢复选中
+        idx = self.qf_customer.findText(current_cust)
+        if idx >= 0:
+            self.qf_customer.setCurrentIndex(idx)
+        self.qf_customer.blockSignals(False)
+        
+        # 获取筛选条件
+        status_text = self.qf.currentText()
+        status = None if status_text == "全部" else QS_R.get(status_text, "")
+        
+        cust_name = self.qf_customer.currentText()
+        cust_id = None
+        if cust_name != "全部客户":
+            cust_idx = self.qf_customer.currentIndex()
+            if cust_idx > 0:  # index 0 是 "全部客户"
+                cust_id = self.qf_customer.itemData(cust_idx)
+        
+        qs = self.quotation_manager.get_quotations_filtered(
+            status=status, customer_id=cust_id)
+        
         self.qt.setRowCount(len(qs))
         for i, q in enumerate(qs):
+            converted_text = ""
+            if q.converted_order_id:
+                converted_text = f"工单#{q.converted_order_id}"
             row = [
                 (q.quotation_no, q.id),
                 (q.customer_name, None),
@@ -899,6 +1006,7 @@ class MainWindow(QMainWindow):
                 (f"¥ {q.total_amount:.2f}", None),
                 (QS.get(q.status, q.status), None),
                 (q.created_at[:10] if q.created_at else "", None),
+                (converted_text, None),
             ]
             for c, (txt, uid) in enumerate(row):
                 it = QTableWidgetItem(txt)
