@@ -147,7 +147,7 @@ class OrderDialog(QDialog):
 
         form = QFormLayout()
         form.setSpacing(10)
-        form.addRow("客户 *", self.customer_combo)
+        form.addRow("客户 *", self.customer_name)
         form.addRow("联系电话", self.customer_phone)
         form.addRow("工单描述 *", self.description)
         form.addRow("金额", self.total_amount)
@@ -230,7 +230,7 @@ class QuotationDialog(QDialog):
         self.customer_name.setPlaceholderText("请选择客户")
         for c in self.customers:
             self.customer_name.addItem(c.name, c.id)
-        form.addRow("客户 *", self.customer_combo)
+        form.addRow("客户 *", self.customer_name)
 
         self.valid_days = QSpinBox()
         self.valid_days.setRange(1, 365)
