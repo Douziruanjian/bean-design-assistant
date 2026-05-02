@@ -19,6 +19,8 @@ class Order:
     description: str = ""
     total_amount: float = 0.0
     status: str = "pending"  # pending, in_progress, completed, cancelled
+    source_quotation_no: str = ""  # 来源报价单号
+    source_type: str = "manual"    # 来源类型：manual / quotation
     created_at: str = ""
     updated_at: str = ""
     
@@ -31,6 +33,8 @@ class Order:
             'description': self.description,
             'total_amount': self.total_amount,
             'status': self.status,
+            'source_quotation_no': self.source_quotation_no,
+            'source_type': self.source_type,
             'created_at': self.created_at,
             'updated_at': self.updated_at
         }
@@ -66,22 +70,28 @@ class Quotation:
     """报价单模型"""
     id: Optional[int] = None
     quotation_no: str = ""
+    customer_id: Optional[int] = None  # 关联客户ID
     customer_name: str = ""
     items: List[QuotationItem] = field(default_factory=list)
     total_amount: float = 0.0
     valid_until: str = ""
-    status: str = "draft"  # draft, confirmed, expired
+    status: str = "draft"  # draft / sent / confirmed / converted / voided
+    converted_order_id: Optional[int] = None  # 转工单后的工单ID
+    converted_at: str = ""  # 转工单时间
     created_at: str = ""
     
     def to_dict(self) -> dict:
         return {
             'id': self.id,
             'quotation_no': self.quotation_no,
+            'customer_id': self.customer_id,
             'customer_name': self.customer_name,
             'items': [item.to_dict() for item in self.items],
             'total_amount': self.total_amount,
             'valid_until': self.valid_until,
             'status': self.status,
+            'converted_order_id': self.converted_order_id,
+            'converted_at': self.converted_at,
             'created_at': self.created_at
         }
     
@@ -91,11 +101,14 @@ class Quotation:
         return cls(
             id=data.get('id'),
             quotation_no=data.get('quotation_no', ''),
+            customer_id=data.get('customer_id'),
             customer_name=data.get('customer_name', ''),
             items=items,
             total_amount=data.get('total_amount', 0.0),
             valid_until=data.get('valid_until', ''),
             status=data.get('status', 'draft'),
+            converted_order_id=data.get('converted_order_id'),
+            converted_at=data.get('converted_at', ''),
             created_at=data.get('created_at', '')
         )
     
@@ -164,3 +177,18 @@ def get_current_datetime() -> str:
 def get_current_date() -> str:
     """获取当前日期字符串"""
     return datetime.now().strftime('%Y-%m-%d')
+
+
+# ══════════════════════════════════════════════
+# 报价单状态常量
+# ══════════════════════════════════════════════
+
+QUOTATION_STATUS = {
+    "draft": "草稿",
+    "sent": "已发给客户",
+    "confirmed": "客户确认",
+    "converted": "已转工单",
+    "voided": "作废",
+}
+
+QUOTATION_STATUS_REVERSE = {v: k for k, v in QUOTATION_STATUS.items()}
