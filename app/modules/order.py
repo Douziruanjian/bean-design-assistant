@@ -44,7 +44,22 @@ class OrderManager:
             total_amount=total_amount,
             status=status
         )
-        return self.db.create_order(order)
+        order = self.db.create_order(order)
+        # 更新客户统计
+        self._update_customer_stats(order.customer_name)
+        return order
+    
+    def _update_customer_stats(self, customer_name: str):
+        '''更新客户的订单数和消费总额'''
+        orders = self.db.get_orders()
+        total_orders = sum(1 for o in orders if o.customer_name == customer_name and o.status != "cancelled")
+        total_spent = sum(o.total_amount for o in orders if o.customer_name == customer_name and o.status != "cancelled")
+        # 更新客户记录
+        customers = self.db.get_customers()
+        for c in customers:
+            if c.name == customer_name:
+                self.db.update_customer(c.id, total_orders=total_orders, total_spent=total_spent)
+                break
     
     def get_order(self, order_id: int) -> Optional[Order]:
         """
@@ -112,7 +127,10 @@ class OrderManager:
             if hasattr(order, key):
                 setattr(order, key, value)
         
-        return self.db.update_order(order)
+        result = self.db.update_order(order)
+        # 更新客户统计
+        self._update_customer_stats(order.customer_name)
+        return result
     
     def delete_order(self, order_id: int) -> bool:
         """
@@ -124,7 +142,14 @@ class OrderManager:
         Returns:
             bool: 是否成功
         """
-        return self.db.delete_order(order_id)
+        # 先获取工单信息以更新客户统计
+        order = self.db.get_order(order_id)
+        customer_name = order.customer_name if order else None
+        result = self.db.delete_order(order_id)
+        # 更新客户统计
+        if customer_name:
+            self._update_customer_stats(customer_name)
+        return result
     
     def cancel_order(self, order_id: int) -> bool:
         """
