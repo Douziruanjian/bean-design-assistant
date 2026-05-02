@@ -381,7 +381,7 @@ class CustomerDialog(QDialog):
         self.customer = customer
         self.setWindowTitle("编辑客户" if customer else "新建客户")
         self.setMinimumWidth(450)
-        self._ui()
+        self._init_ui()
         if customer:
             self.name_edit.setText(customer.name)
             self.phone_edit.setText(customer.phone)
@@ -493,7 +493,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        self._ui()
         self._menu_bar()
         self._tool_bar()
         self._status_bar()
