@@ -18,6 +18,9 @@ class Order:
     customer_phone: str = ""
     description: str = ""
     total_amount: float = 0.0
+    paid_amount: float = 0.0          # 已收金额
+    unpaid_amount: float = 0.0        # 未收金额（自动计算）
+    payment_status: str = "unpaid"    # unpaid / partial / paid
     status: str = "pending"  # pending, in_progress, completed, cancelled
     source_quotation_no: str = ""  # 来源报价单号
     source_type: str = "manual"    # 来源类型：manual / quotation
@@ -32,6 +35,9 @@ class Order:
             'customer_phone': self.customer_phone,
             'description': self.description,
             'total_amount': self.total_amount,
+            'paid_amount': self.paid_amount,
+            'unpaid_amount': self.unpaid_amount,
+            'payment_status': self.payment_status,
             'status': self.status,
             'source_quotation_no': self.source_quotation_no,
             'source_type': self.source_type,
@@ -192,3 +198,52 @@ QUOTATION_STATUS = {
 }
 
 QUOTATION_STATUS_REVERSE = {v: k for k, v in QUOTATION_STATUS.items()}
+
+
+# ══════════════════════════════════════════════
+# 收款记录模型
+# ══════════════════════════════════════════════
+
+@dataclass
+class PaymentRecord:
+    """收款记录"""
+    id: Optional[int] = None
+    order_id: int = 0          # 关联工单ID
+    order_no: str = ""         # 工单号
+    customer_name: str = ""    # 客户名称
+    amount: float = 0.0        # 收款金额
+    payment_method: str = ""   # 支付方式：微信/支付宝/现金/挂账
+    payment_type: str = ""     # 收款类型：定金/中途款/尾款
+    remark: str = ""           # 备注
+    created_at: str = ""       # 收款时间
+    
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'order_id': self.order_id,
+            'order_no': self.order_no,
+            'customer_name': self.customer_name,
+            'amount': self.amount,
+            'payment_method': self.payment_method,
+            'payment_type': self.payment_type,
+            'remark': self.remark,
+            'created_at': self.created_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'PaymentRecord':
+        return cls(**data)
+
+
+# ══════════════════════════════════════════════
+# 收款相关常量
+# ══════════════════════════════════════════════
+
+PAYMENT_STATUS = {
+    "unpaid": "未付款",
+    "partial": "部分付款",
+    "paid": "已结清",
+}
+
+PAYMENT_METHODS = ["微信", "支付宝", "现金", "挂账"]
+PAYMENT_TYPES = ["定金", "中途款", "尾款"]
