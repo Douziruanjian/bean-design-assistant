@@ -119,7 +119,7 @@ class OrderDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        self.customer_name.setPlaceholderText("请选择客户")
+        # QComboBox 不支持 placeholder，用第一项作为提示
         for c in self.customers:
             self.customer_name.addItem(c.name, c.id)
         self.customer_name.currentIndexChanged.connect(self._on_customer_changed)
@@ -227,7 +227,7 @@ class QuotationDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        self.customer_name.setPlaceholderText("请选择客户")
+        # QComboBox 不支持 placeholder，用第一项作为提示
         for c in self.customers:
             self.customer_name.addItem(c.name, c.id)
         form.addRow("客户 *", self.customer_name)
