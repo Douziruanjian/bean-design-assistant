@@ -107,20 +107,26 @@ QS_R = {v: k for k, v in QS.items()}
 
 class OrderDialog(QDialog):
     """工单编辑对话框"""
-    def __init__(self, parent=None, order: Order = None):
+    def __init__(self, parent=None, order: Order = None, customers: list = None):
         super().__init__(parent)
         self.result_order = None
         self.order = order
+        self.customers = customers or []
         self.setWindowTitle("编辑工单" if order else "新建工单")
         self.setMinimumWidth(480)
-        self._ui()
 
-        self.customer_name = QLineEdit()
-        self.customer_name.setPlaceholderText("请输入客户名称")
+        # 客户下拉选择（从数据库加载）
+        self.customer_name = QComboBox()
+        self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
+        self.customer_name.setPlaceholderText("请选择客户")
+        for c in self.customers:
+            self.customer_name.addItem(c.name, c.id)
+        self.customer_name.currentIndexChanged.connect(self._on_customer_changed)
 
         self.customer_phone = QLineEdit()
-        self.customer_phone.setPlaceholderText("请输入联系电话")
+        self.customer_phone.setPlaceholderText("选客户后自动填充")
+        self.customer_phone.setReadOnly(True)
         self.customer_phone.setMinimumHeight(30)
 
         self.description = QTextEdit()
@@ -163,17 +169,30 @@ class OrderDialog(QDialog):
         lo.addLayout(b)
 
         if order:
-            self.customer_name.setText(order.customer_name)
+            # 选择已有客户
+            idx = self.customer_name.findText(order.customer_name)
+            if idx >= 0:
+                self.customer_name.setCurrentIndex(idx)
+            else:
+                self.customer_name.addItem(order.customer_name)
+                self.customer_name.setCurrentIndex(self.customer_name.count() - 1)
             self.customer_phone.setText(order.customer_phone)
             self.description.setPlainText(order.description)
             self.total_amount.setValue(order.total_amount)
             self.status_combo.setCurrentText(OS.get(order.status, "待处理"))
 
+    def _on_customer_changed(self, idx):
+        """选择客户后自动填充电话"""
+        if idx < 0 or idx >= len(self.customers):
+            return
+        c = self.customers[idx]
+        self.customer_phone.setText(c.phone or "")
+
     def _accept(self):
-        name = self.customer_name.text().strip()
+        name = self.customer_name.currentText().strip()
         desc = self.description.toPlainText().strip()
         if not name:
-            QMessageBox.warning(self, "提示", "请输入客户名称"); return
+            QMessageBox.warning(self, "提示", "请选择客户名称"); return
         if not desc:
             QMessageBox.warning(self, "提示", "请输入工单描述"); return
         o = Order(
@@ -192,30 +211,25 @@ class OrderDialog(QDialog):
 
 class QuotationDialog(QDialog):
     """报价单编辑对话框 — 支持多行项目"""
-    def __init__(self, parent=None, quotation: Quotation = None):
+    def __init__(self, parent=None, quotation: Quotation = None, customers: list = None):
         super().__init__(parent)
         self.result = None
         self.quotation = quotation
         self.items: list[dict] = []
+        self.customers = customers or []
         self.setWindowTitle("编辑报价单" if quotation else "新建报价单")
         self.setMinimumWidth(640)
         self.setMinimumHeight(520)
-        self._ui()
-        if quotation:
-            self.customer_name.setText(quotation.customer_name)
-            self.status_combo.setCurrentText(QS.get(quotation.status, "草稿"))
-            for it in quotation.items:
-                self.items.append(dict(name=it.name, qty=it.qty,
-                                       unit_price=it.unit_price, amount=it.amount))
-            self._refresh_table()
 
-    def _ui(self):
         lo = QVBoxLayout(self)
 
         form = QFormLayout()
-        self.customer_name = QLineEdit()
-        self.customer_name.setPlaceholderText("请输入客户名称")
+        self.customer_name = QComboBox()
+        self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
+        self.customer_name.setPlaceholderText("请选择客户")
+        for c in self.customers:
+            self.customer_name.addItem(c.name, c.id)
         form.addRow("客户名称 *", self.customer_name)
 
         self.valid_days = QSpinBox()
@@ -296,6 +310,19 @@ class QuotationDialog(QDialog):
         b.addWidget(c)
         lo.addLayout(b)
 
+        if quotation:
+            idx = self.customer_name.findText(quotation.customer_name)
+            if idx >= 0:
+                self.customer_name.setCurrentIndex(idx)
+            else:
+                self.customer_name.addItem(quotation.customer_name)
+                self.customer_name.setCurrentIndex(self.customer_name.count() - 1)
+            self.status_combo.setCurrentText(QS.get(quotation.status, "草稿"))
+            for it in quotation.items:
+                self.items.append(dict(name=it.name, qty=it.qty,
+                                       unit_price=it.unit_price, amount=it.amount))
+            self._refresh_table()
+
     def _add(self):
         n = self.it_name.text().strip()
         if not n:
@@ -329,9 +356,9 @@ class QuotationDialog(QDialog):
         self.total_lbl.setText(f"¥ {t:.2f}")
 
     def _accept(self):
-        n = self.customer_name.text().strip()
+        n = self.customer_name.currentText().strip()
         if not n:
-            QMessageBox.warning(self, "提示", "请输入客户名称"); return
+            QMessageBox.warning(self, "提示", "请选择客户名称"); return
         if not self.items:
             QMessageBox.warning(self, "提示", "请至少添加一个报价项目"); return
         self.result = {
@@ -643,7 +670,8 @@ class MainWindow(QMainWindow):
         return p
 
     def _new_order(self):
-        d = OrderDialog(self)
+        customers = self.db.get_customers()
+        d = OrderDialog(self, customers=customers)
         if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
             o = d.result_order
             r = self.order_manager.create_order(
@@ -665,7 +693,7 @@ class MainWindow(QMainWindow):
         o = self.order_manager.get_order(oid)
         if not o:
             return
-        d = OrderDialog(self, o)
+        d = OrderDialog(self, o, customers=self.db.get_customers())
         if d.exec() == QDialog.DialogCode.Accepted and d.result_order:
             r2 = d.result_order
             self.order_manager.update_order(
@@ -786,7 +814,8 @@ class MainWindow(QMainWindow):
         return p
 
     def _new_quotation(self):
-        d = QuotationDialog(self)
+        customers = self.db.get_customers()
+        d = QuotationDialog(self, customers=customers)
         if d.exec() == QDialog.DialogCode.Accepted and d.result:
             r = d.result
             q = self.quotation_manager.create_quotation(
@@ -807,7 +836,7 @@ class MainWindow(QMainWindow):
         q = self.quotation_manager.get_quotation(qid)
         if not q:
             return
-        d = QuotationDialog(self, q)
+        d = QuotationDialog(self, q, customers=self.db.get_customers())
         if d.exec() == QDialog.DialogCode.Accepted and d.result:
             r2 = d.result
             # 重建报价
