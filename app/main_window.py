@@ -493,6 +493,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        self._init_ui()
         self._menu_bar()
         self._tool_bar()
         self._status_bar()
