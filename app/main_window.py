@@ -121,9 +121,13 @@ class OrderDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        self.customer_name.setPlaceholderText("请选择客户")
-        for c in self.customers:
-            self.customer_name.addItem(c.name, c.id)
+        # PyQt6 6.11 不支持 setPlaceholderText for QComboBox
+        # self.customer_name.setPlaceholderText("请选择客户")
+        if self.customers:
+            for c in self.customers:
+                self.customer_name.addItem(c.name, c.id)
+        else:
+            self.customer_name.addItem("请先添加客户", -1)
         self.customer_name.currentIndexChanged.connect(self._on_customer_changed)
 
         self.customer_phone = QLineEdit()
@@ -238,9 +242,13 @@ class QuotationDialog(QDialog):
         self.customer_name = QComboBox()
         self.customer_name.setEditable(False)
         self.customer_name.setMinimumHeight(30)
-        self.customer_name.setPlaceholderText("请选择客户")
-        for c in self.customers:
-            self.customer_name.addItem(c.name, c.id)
+        # PyQt6 6.11 不支持 QComboBox.setPlaceholderText
+        if self.customers:
+            for c in self.customers:
+                self.customer_name.addItem(c.name, c.id)
+            self.customer_name.setCurrentIndex(0)
+        else:
+            self.customer_name.addItem("请先添加客户", -1)
         self.customer_name.currentIndexChanged.connect(self._on_customer_changed)
         form.addRow("客户名称 *", self.customer_name)
 
@@ -1144,39 +1152,43 @@ class MainWindow(QMainWindow):
             self._refresh_quotations()
 
     def _edit_quotation(self):
+        """编辑报价单"""
         r = self.qt.currentRow()
         if r < 0:
-            QMessageBox.warning(self, "提示", "请先选中一个报价单"); return
+            QMessageBox.warning(self, "提示", "请先选中一个报价单")
+            return
         qid = self.qt.item(r, 0).data(Qt.ItemDataRole.UserRole)
-        q = self.quotation_manager.get_quotation(qid)
+        try:
+            q = self.quotation_manager.get_quotation(qid)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"获取报价单失败：{e}")
+            return
         if not q:
+            QMessageBox.warning(self, "提示", "报价单不存在")
             return
         # 已转工单不可编辑
         if q.status == "converted":
             QMessageBox.information(self, "提示", "已转工单的报价单不可编辑")
             return
-        d = QuotationDialog(self, q, customers=self.db.get_customers(), db=self.db)
-        if d.exec() == QDialog.DialogCode.Accepted and d.result:
-            r2 = d.result
-            new_q = self.quotation_manager.create_quotation(
-                customer_name=r2["customer_name"],
-                customer_id=r2.get("customer_id"),
-                items=r2["items"],
-                valid_days=r2["valid_days"],
-            )
-            if new_q and new_q.id:
-                self.quotation_manager.update_quotation(
-                    new_q.id, status=r2["status"])
-                # 更新为原 ID 以保持引用
-                self.db.cursor.execute(
-                    "UPDATE quotations SET id=? WHERE id=?",
-                    (qid, new_q.id))
-                # 保持 converted 状态
-                if q.status == "converted" and q.converted_order_id:
-                    self.db.mark_quotation_converted(qid, q.converted_order_id)
-                self.db.conn.commit()
-            self.statusBar().showMessage("✅ 报价单已更新", 3000)
-            self._refresh_quotations()
+        
+        try:
+            d = QuotationDialog(self, q, customers=self.db.get_customers(), db=self.db)
+            if d.exec() == QDialog.DialogCode.Accepted and d.result:
+                r2 = d.result
+                # 更新报价单
+                q.customer_name = r2["customer_name"]
+                q.customer_id = r2.get("customer_id")
+                q.items = r2["items"]
+                q.total_amount = sum(item["qty"] * item["price"] for item in r2["items"])
+                q.status = r2["status"]
+                
+                self.quotation_manager.update_quotation(q.id, q)
+                self.statusBar().showMessage("✅ 报价单已更新", 3000)
+                self._refresh_quotations()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"更新报价单失败：{e}")
+            import traceback
+            traceback.print_exc()
 
     def _del_quotation(self):
         r = self.qt.currentRow()
