@@ -815,15 +815,19 @@ class DatabaseManager:
     
     def get_payments_by_order(self, order_id: int) -> list:
         """获取工单的所有收款记录"""
-        self.cursor.execute('''
-            SELECT id, order_id, order_no, customer_name, amount,
-                   payment_method, payment_type, remark, created_at
-            FROM payment_records
-            WHERE order_id = ?
-            ORDER BY created_at DESC
-        ''', (order_id,))
-        rows = self.cursor.fetchall()
-        return [dict(r) for r in rows]
+        try:
+            self.cursor.execute('''
+                SELECT id, order_id, order_no, customer_name, amount,
+                       payment_method, payment_type, remark, created_at
+                FROM payment_records
+                WHERE order_id = ?
+                ORDER BY created_at DESC
+            ''', (order_id,))
+            rows = self.cursor.fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.OperationalError:
+            # payment_records 表不存在
+            return []
     
     def get_all_payments(self, start_date: str = None,
                          end_date: str = None) -> list:

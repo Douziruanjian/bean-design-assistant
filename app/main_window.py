@@ -1019,51 +1019,67 @@ class MainWindow(QMainWindow):
 
     def _refresh_orders(self):
         """刷新工单列表"""
-        f = self.of.currentText()
-        if f == "全部":
-            orders = self.order_manager.get_all_orders()
-        else:
-            orders = self.order_manager.get_orders_by_status(OS_R.get(f, ""))
-        
-        self.ot.setRowCount(len(orders))
-        for i, o in enumerate(orders):
-            desc = o.description[:30] + "..." if len(o.description) > 30 else o.description
+        try:
+            if not hasattr(self, 'of') or not hasattr(self, 'order_manager') or not hasattr(self, 'db'):
+                return
             
-            # 获取工单的付款记录（取第一条作为主要付款方式）
-            payments = self.db.get_payments_by_order(o.id) if hasattr(o, 'id') and o.id else []
-            payment_method = ""
-            if payments:
-                # 显示所有付款方式的汇总
-                methods = set(p.get('payment_method', '') for p in payments)
-                payment_method = " + ".join(methods)
+            f = self.of.currentText() if hasattr(self, 'of') and self.of else "全部"
+            if f == "全部":
+                orders = self.order_manager.get_all_orders()
+            else:
+                orders = self.order_manager.get_orders_by_status(OS_R.get(f, ""))
             
-            # 计算已收和未收
-            paid = sum(p.get('amount', 0) for p in payments) if payments else getattr(o, 'paid_amount', 0)
-            unpaid = getattr(o, 'total_amount', 0) - paid
-            
-            row = [
-                (o.order_no, o.id),
-                (o.customer_name, None),
-                (o.customer_phone, None),
-                (desc, None),
-                (f"¥ {o.total_amount:.2f}", None),
-                (f"¥ {paid:.2f}", None),
-                (f"¥ {unpaid:.2f}", None),
-                (payment_method, None),
-                (OS.get(o.status, o.status), None),
-                (o.created_at[:10] if o.created_at else "", None),
-            ]
-            
-            for c, (txt, uid) in enumerate(row):
-                it = QTableWidgetItem(txt)
-                if uid is not None:
-                    it.setData(Qt.ItemDataRole.UserRole, uid)
-                # 未结款红色高亮
-                if c == 6 and unpaid > 0:  # 未收列
-                    it.setForeground(QColor("#e53935"))
-                    font = QFont("Microsoft YaHei", 10, QFont.Weight.Bold)
-                    it.setFont(font)
-                self.ot.setItem(i, c, it)
+            if not hasattr(self, 'ot'):
+                return
+                
+            self.ot.setRowCount(len(orders))
+            for i, o in enumerate(orders):
+                desc = o.description[:30] + "..." if len(o.description) > 30 else o.description
+                
+                # 获取工单的付款记录
+                payments = []
+                if hasattr(o, 'id') and o.id:
+                    try:
+                        payments = self.db.get_payments_by_order(o.id)
+                    except:
+                        payments = []
+                
+                payment_method = ""
+                if payments:
+                    methods = set(p.get('payment_method', '') for p in payments)
+                    payment_method = " + ".join(methods)
+                
+                # 计算已收和未收
+                paid = sum(p.get('amount', 0) for p in payments) if payments else getattr(o, 'paid_amount', 0)
+                unpaid = getattr(o, 'total_amount', 0) - paid
+                
+                row = [
+                    (o.order_no, o.id),
+                    (o.customer_name, None),
+                    (o.customer_phone, None),
+                    (desc, None),
+                    (f"¥ {o.total_amount:.2f}", None),
+                    (f"¥ {paid:.2f}", None),
+                    (f"¥ {unpaid:.2f}", None),
+                    (payment_method, None),
+                    (OS.get(o.status, o.status), None),
+                    (o.created_at[:10] if o.created_at else "", None),
+                ]
+                
+                for c, (txt, uid) in enumerate(row):
+                    it = QTableWidgetItem(txt)
+                    if uid is not None:
+                        it.setData(Qt.ItemDataRole.UserRole, uid)
+                    # 未结款红色高亮
+                    if c == 6 and unpaid > 0:  # 未收列
+                        it.setForeground(QColor("#e53935"))
+                        font = QFont("Microsoft YaHei", 10, QFont.Weight.Bold)
+                        it.setFont(font)
+                    self.ot.setItem(i, c, it)
+        except Exception as e:
+            # 静默失败，避免启动时闪退
+            import traceback
+            traceback.print_exc()
 
     # ══════════════════════════════════════════
     # 报价管理页面
