@@ -179,6 +179,37 @@ def get_current_date() -> str:
     return datetime.now().strftime('%Y-%m-%d')
 
 
+@dataclass
+class PaymentRecord:
+    """付款记录模型"""
+    id: Optional[int] = None
+    order_id: int = 0
+    order_no: str = ""
+    customer_name: str = ""
+    amount: float = 0.0
+    payment_method: str = "cash"  # cash, wechat, alipay, bank
+    payment_type: str = "deposit"  # deposit, final, advance
+    remark: str = ""
+    created_at: str = ""
+    
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'order_id': self.order_id,
+            'order_no': self.order_no,
+            'customer_name': self.customer_name,
+            'amount': self.amount,
+            'payment_method': self.payment_method,
+            'payment_type': self.payment_type,
+            'remark': self.remark,
+            'created_at': self.created_at,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'PaymentRecord':
+        return cls(**data)
+
+
 # ══════════════════════════════════════════════
 # 报价单状态常量
 # ══════════════════════════════════════════════
@@ -192,3 +223,11 @@ QUOTATION_STATUS = {
 }
 
 QUOTATION_STATUS_REVERSE = {v: k for k, v in QUOTATION_STATUS.items()}
+
+
+# ══════════════════════════════════════════════
+# 支付方式/类型常量
+# ══════════════════════════════════════════════
+
+PAYMENT_METHODS = ["现金", "微信", "支付宝", "银行卡"]
+PAYMENT_TYPES = ["定金", "尾款", "预付款"]

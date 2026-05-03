@@ -48,12 +48,25 @@ class PaymentManager:
             remark=remark
         )
         
-        result = self.db.create_payment(record)
+        # 使用 update_order_payment 一次性完成收款和记录创建
+        result = self.db.update_order_payment(
+            order_id=order_id,
+            amount=amount,
+            payment_method=payment_method,
+            payment_type=payment_type,
+            remark=remark
+        )
         
         # 更新客户统计
         self.db.update_customer_stats_by_name(customer_name)
         
-        return result
+        if result['success']:
+            # 获取刚创建的收款记录
+            payments = self.db.get_payments_by_order(order_id)
+            if payments:
+                return payments[-1]  # 返回最后一条（刚创建的）
+            return record
+        return None
     
     def get_payments_by_order(self, order_id: int) -> List[PaymentRecord]:
         """获取工单的所有收款记录"""

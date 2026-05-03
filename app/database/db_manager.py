@@ -718,6 +718,143 @@ class DatabaseManager:
             'order_count': r['order_count'],
         } for r in rows]
     
+    def create_payment_record(self, record: dict) -> int:
+        """创建付款记录
+        Args:
+            record: {'order_id': int, 'order_no': str, 'customer_name': str,
+                     'amount': float, 'payment_method': str, 'payment_type': str,
+                     'remark': str}
+        Returns:
+            新记录的 ID
+        """
+        import datetime
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.cursor.execute('''
+            INSERT INTO payment_records 
+            (order_id, order_no, customer_name, amount, payment_method, 
+             payment_type, remark, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (record['order_id'], record['order_no'], record['customer_name'],
+              record['amount'], record['payment_method'], record['payment_type'],
+              record.get('remark', ''), now))
+        self.conn.commit()
+        return self.cursor.lastrowid
+    
+    def update_order_payment(self, order_id: int, amount: float, 
+                             payment_method: str = 'cash',
+                             payment_type: str = 'final',
+                             remark: str = '') -> dict:
+        """更新工单收款信息
+        Args:
+            order_id: 工单 ID
+            amount: 收款金额
+            payment_method: 支付方式
+            payment_type: 收款类型
+            remark: 备注
+        Returns:
+            {'success': bool, 'message': str, 'unpaid_amount': float, 
+             'payment_status': str}
+        """
+        import datetime
+        
+        # 获取工单当前状态
+        self.cursor.execute('''
+            SELECT total_amount, paid_amount, unpaid_amount, order_no, customer_name
+            FROM orders WHERE id = ?
+        ''', (order_id,))
+        row = self.cursor.fetchone()
+        if not row:
+            return {'success': False, 'message': '工单不存在'}
+        
+        total = float(row['total_amount'])
+        paid = float(row['paid_amount'])
+        order_no = row['order_no']
+        customer_name = row['customer_name']
+        
+        # 更新已付/未付金额
+        new_paid = paid + amount
+        new_unpaid = total - new_paid
+        if new_unpaid < 0:
+            new_unpaid = 0
+        
+        # 判定收款状态
+        if new_unpaid == 0:
+            payment_status = 'paid'
+        elif new_paid > 0:
+            payment_status = 'partial'
+        else:
+            payment_status = 'unpaid'
+        
+        # 更新工单
+        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.cursor.execute('''
+            UPDATE orders 
+            SET paid_amount = ?, unpaid_amount = ?, payment_status = ?, updated_at = ?
+            WHERE id = ?
+        ''', (new_paid, new_unpaid, payment_status, now, order_id))
+        
+        # 创建付款记录
+        self.create_payment_record({
+            'order_id': order_id,
+            'order_no': order_no,
+            'customer_name': customer_name,
+            'amount': amount,
+            'payment_method': payment_method,
+            'payment_type': payment_type,
+            'remark': remark,
+        })
+        
+        self.conn.commit()
+        
+        return {
+            'success': True,
+            'message': f'收款成功，剩余欠款：¥{new_unpaid:.2f}',
+            'unpaid_amount': new_unpaid,
+            'payment_status': payment_status,
+        }
+    
+    def get_payments_by_order(self, order_id: int) -> list:
+        """获取工单的所有收款记录"""
+        self.cursor.execute('''
+            SELECT id, order_id, order_no, customer_name, amount,
+                   payment_method, payment_type, remark, created_at
+            FROM payment_records
+            WHERE order_id = ?
+            ORDER BY created_at DESC
+        ''', (order_id,))
+        rows = self.cursor.fetchall()
+        return [dict(r) for r in rows]
+    
+    def get_all_payments(self, start_date: str = None,
+                         end_date: str = None) -> list:
+        """获取所有收款记录（可筛选日期范围）"""
+        query = '''
+            SELECT id, order_id, order_no, customer_name, amount,
+                   payment_method, payment_type, remark, created_at
+            FROM payment_records
+            WHERE 1=1
+        '''
+        params = []
+        if start_date:
+            query += ' AND created_at >= ?'
+            params.append(start_date)
+        if end_date:
+            query += ' AND created_at <= ?'
+            params.append(end_date)
+        query += ' ORDER BY created_at DESC'
+        
+        self.cursor.execute(query, params)
+        rows = self.cursor.fetchall()
+        return [dict(r) for r in rows]
+    
+    def delete_payment(self, payment_id: int) -> bool:
+        """删除收款记录"""
+        self.cursor.execute('''
+            DELETE FROM payment_records WHERE id = ?
+        ''', (payment_id,))
+        self.conn.commit()
+        return self.cursor.rowcount > 0
+    
     def close(self):
         """关闭数据库连接"""
         if self.conn:
