@@ -18,6 +18,9 @@ class Order:
     customer_phone: str = ""
     description: str = ""
     total_amount: float = 0.0
+    paid_amount: float = 0.0  # 已收金额
+    unpaid_amount: float = 0.0  # 未收金额
+    payment_status: str = "unpaid"  # unpaid, partial, paid
     status: str = "pending"  # pending, in_progress, completed, cancelled
     source_quotation_no: str = ""  # 来源报价单号
     source_type: str = "manual"    # 来源类型：manual / quotation
@@ -32,6 +35,9 @@ class Order:
             'customer_phone': self.customer_phone,
             'description': self.description,
             'total_amount': self.total_amount,
+            'paid_amount': self.paid_amount,
+            'unpaid_amount': self.unpaid_amount,
+            'payment_status': self.payment_status,
             'status': self.status,
             'source_quotation_no': self.source_quotation_no,
             'source_type': self.source_type,

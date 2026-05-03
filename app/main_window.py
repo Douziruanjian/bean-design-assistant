@@ -554,39 +554,48 @@ class CustomerDetailDialog(QDialog):
         lo.addLayout(b)
     
     def _load_data(self):
-        from app.database.models import QUOTATION_STATUS
-        
-        quotations = self.db.get_customer_quotations(self.customer.name)
-        self.qt.setRowCount(len(quotations))
-        for i, q in enumerate(quotations):
-            self.qt.setItem(i, 0, QTableWidgetItem(q.get('quotation_no', '')))
-            self.qt.setItem(i, 1, QTableWidgetItem(f"¥ {float(q.get('total_amount', 0)):.2f}"))
-            status_key = q.get('status', 'draft')
-            self.qt.setItem(i, 2, QTableWidgetItem(
-                QUOTATION_STATUS.get(status_key, status_key)))
-            created = (q.get('created_at') or '')[:10]
-            self.qt.setItem(i, 3, QTableWidgetItem(created))
-        
-        orders = self.db.get_customer_orders(self.customer.name)
-        self.ot2.setRowCount(len(orders))
-        ps_text = {"unpaid": "未付款", "partial": "部分付款", "paid": "已结清"}
-        ps_colors = {"unpaid": "#e53935", "partial": "#fb8c00", "paid": "#43a047"}
-        
-        for i, o in enumerate(orders):
-            self.ot2.setItem(i, 0, QTableWidgetItem(o.get('order_no', '')))
-            self.ot2.setItem(i, 1, QTableWidgetItem(f"¥ {float(o.get('total_amount', 0)):.2f}"))
-            self.ot2.setItem(i, 2, QTableWidgetItem(f"¥ {float(o.get('paid_amount', 0)):.2f}"))
-            self.ot2.setItem(i, 3, QTableWidgetItem(f"¥ {float(o.get('unpaid_amount', 0)):.2f}"))
+        """加载客户历史报价和工单数据"""
+        try:
+            from app.database.models import QUOTATION_STATUS
             
-            ps = o.get('payment_status', 'unpaid') or 'unpaid'
-            ps_item = QTableWidgetItem(ps_text.get(ps, '未付款'))
-            ps_item.setForeground(QColor(ps_colors.get(ps, '#999')))
-            font = QFont("Microsoft YaHei", 10, QFont.Weight.Bold)
-            ps_item.setFont(font)
-            self.ot2.setItem(i, 4, ps_item)
+            # 加载历史报价
+            quotations = self.db.get_customer_quotations(self.customer.name)
+            self.qt.setRowCount(len(quotations))
+            for i, q in enumerate(quotations):
+                self.qt.setItem(i, 0, QTableWidgetItem(q.get('quotation_no', '')))
+                self.qt.setItem(i, 1, QTableWidgetItem(f"¥ {float(q.get('total_amount', 0)):.2f}"))
+                status_key = q.get('status', 'draft')
+                self.qt.setItem(i, 2, QTableWidgetItem(
+                    QUOTATION_STATUS.get(status_key, status_key)))
+                created = (q.get('created_at') or '')[:10]
+                self.qt.setItem(i, 3, QTableWidgetItem(created))
             
-            created = (o.get('created_at') or '')[:10]
-            self.ot2.setItem(i, 5, QTableWidgetItem(created))
+            # 加载历史工单
+            orders = self.db.get_customer_orders(self.customer.name)
+            self.ot2.setRowCount(len(orders))
+            ps_text = {"unpaid": "未付款", "partial": "部分付款", "paid": "已结清"}
+            ps_colors = {"unpaid": "#e53935", "partial": "#fb8c00", "paid": "#43a047"}
+            
+            for i, o in enumerate(orders):
+                self.ot2.setItem(i, 0, QTableWidgetItem(o.get('order_no', '')))
+                self.ot2.setItem(i, 1, QTableWidgetItem(f"¥ {float(o.get('total_amount', 0)):.2f}"))
+                self.ot2.setItem(i, 2, QTableWidgetItem(f"¥ {float(o.get('paid_amount', 0)):.2f}"))
+                self.ot2.setItem(i, 3, QTableWidgetItem(f"¥ {float(o.get('unpaid_amount', 0)):.2f}"))
+                
+                ps = o.get('payment_status', 'unpaid') or 'unpaid'
+                ps_item = QTableWidgetItem(ps_text.get(ps, '未付款'))
+                ps_item.setForeground(QColor(ps_colors.get(ps, '#999')))
+                font = QFont("Microsoft YaHei", 10, QFont.Weight.Bold)
+                ps_item.setFont(font)
+                self.ot2.setItem(i, 4, ps_item)
+                
+                created = (o.get('created_at') or '')[:10]
+                self.ot2.setItem(i, 5, QTableWidgetItem(created))
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载数据失败：{e}")
+            import traceback
+            traceback.print_exc()
+            self.accept()
 
 
 # ══════════════════════════════════════════════
@@ -921,10 +930,10 @@ class MainWindow(QMainWindow):
         fh.addStretch()
         lo.addLayout(fh)
 
-        # 表格
-        self.ot = QTableWidget(0, 7)
+        # 表格 - 10 列：工单号、客户、电话、描述、金额、已收、未收、付款方式、状态、日期
+        self.ot = QTableWidget(0, 10)
         self.ot.setHorizontalHeaderLabels(
-            ["工单号", "客户名称", "电话", "描述", "金额", "状态", "创建日期"])
+            ["工单号", "客户名称", "电话", "描述", "金额", "已收", "未收", "付款方式", "状态", "创建日期"])
         self.ot.setAlternatingRowColors(True)
         self.ot.setStyleSheet(TABLE_S)
         self.ot.horizontalHeader().setStretchLastSection(True)
@@ -1009,27 +1018,51 @@ class MainWindow(QMainWindow):
             self._refresh_orders()
 
     def _refresh_orders(self):
+        """刷新工单列表"""
         f = self.of.currentText()
         if f == "全部":
             orders = self.order_manager.get_all_orders()
         else:
             orders = self.order_manager.get_orders_by_status(OS_R.get(f, ""))
+        
         self.ot.setRowCount(len(orders))
         for i, o in enumerate(orders):
             desc = o.description[:30] + "..." if len(o.description) > 30 else o.description
+            
+            # 获取工单的付款记录（取第一条作为主要付款方式）
+            payments = self.db.get_payments_by_order(o.id) if hasattr(o, 'id') and o.id else []
+            payment_method = ""
+            if payments:
+                # 显示所有付款方式的汇总
+                methods = set(p.get('payment_method', '') for p in payments)
+                payment_method = " + ".join(methods)
+            
+            # 计算已收和未收
+            paid = sum(p.get('amount', 0) for p in payments) if payments else getattr(o, 'paid_amount', 0)
+            unpaid = getattr(o, 'total_amount', 0) - paid
+            
             row = [
                 (o.order_no, o.id),
                 (o.customer_name, None),
                 (o.customer_phone, None),
                 (desc, None),
                 (f"¥ {o.total_amount:.2f}", None),
+                (f"¥ {paid:.2f}", None),
+                (f"¥ {unpaid:.2f}", None),
+                (payment_method, None),
                 (OS.get(o.status, o.status), None),
                 (o.created_at[:10] if o.created_at else "", None),
             ]
+            
             for c, (txt, uid) in enumerate(row):
                 it = QTableWidgetItem(txt)
                 if uid is not None:
                     it.setData(Qt.ItemDataRole.UserRole, uid)
+                # 未结款红色高亮
+                if c == 6 and unpaid > 0:  # 未收列
+                    it.setForeground(QColor("#e53935"))
+                    font = QFont("Microsoft YaHei", 10, QFont.Weight.Bold)
+                    it.setFont(font)
                 self.ot.setItem(i, c, it)
 
     # ══════════════════════════════════════════
@@ -1468,14 +1501,20 @@ class MainWindow(QMainWindow):
         if r < 0:
             QMessageBox.warning(self, "提示", "请先选中一个客户")
             return
-        cid = self.ct.item(r, 0).data(Qt.ItemDataRole.UserRole)
-        detail = self.db.get_customer_detail(cid)
-        if not detail.get('customer'):
-            return
-        dlg = CustomerDetailDialog(
-            detail['customer'], detail['total_paid'], detail['total_debt'],
-            self.db, self)
-        dlg.exec()
+        try:
+            cid = self.ct.item(r, 0).data(Qt.ItemDataRole.UserRole)
+            detail = self.db.get_customer_detail(cid)
+            if not detail.get('customer'):
+                QMessageBox.warning(self, "提示", "客户信息不存在")
+                return
+            dlg = CustomerDetailDialog(
+                detail['customer'], detail['total_paid'], detail['total_debt'],
+                self.db, self)
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"打开客户详情失败：{e}")
+            import traceback
+            traceback.print_exc()
     
     # ══════════════════════════════════════════
     # 设置页面（含激活码入口）
